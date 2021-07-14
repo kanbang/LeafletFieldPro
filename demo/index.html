@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>VectorFieldAnim / Style dynamic</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <link rel="stylesheet" href="//unpkg.com/leaflet@1.2.0/dist/leaflet.css" />
+    <link rel="stylesheet" href="examples.css" />
+
+    <link href="https://fonts.googleapis.com/css?family=Roboto:100,400" rel="stylesheet">
+</head>
+
+<body>
+    <h1 class="title mapTitle">VectorFieldAnim dynamic styles</h1>
+    <div id="map"></div>
+    <div id="floating-panel">
+        <ul>
+
+        </ul>
+    </div>
+
+    <div id="floating-panel">
+        <ul>
+            <li id="gradientPanel">
+                <label>Gradient</label>
+                <input type="color" id="lowColor" value="#FFFF00">
+                <input type="color" id="highColor" value="#FF0000">
+            </li>
+
+            <li>
+                <button onclick="onDataA()"> DataA </button>
+                <button onclick="onDataB()"> DataB </button>
+            </li>
+
+            <li>
+                <label>Number of Particles</label>
+                <input id="paths" type="range" min="1" max="1000" step="1" value=100">
+            </li>
+            <li>
+                <label>Width</label>
+                <input id="width" type="range" min="0" max="5" step="0.2" value="0.8">
+            </li>
+            <li>
+                <label>Color</label>
+                <input id="color" type="color" value="#ffffff">
+            </li>
+            <li>
+                <label>Velocity</label>
+                <input id="velocityScale" type="range" min="1000" max="10000" value="5000"
+                    style="transform: rotateY(180deg);">
+            </li>
+            <li>
+                <label>Opacity</label>
+                <input id="opacity" type="range" min="0" max="1" value="1" step="0.1">
+            </li>
+        </ul>
+    </div>
+
+    <!-- CDN -->
+    <script src="//d3js.org/d3.v4.min.js"></script>
+    <script src="//npmcdn.com/leaflet@1.2.0/dist/leaflet.js"></script>
+    <script src="../src/chroma.min.js"></script>
+
+    <!-- Plugin -->
+    <script src="./dist/leaflet.canvaslayer.field.js"></script>
+    <script src="./axios.min.js"></script>
+
+    <script>
+        let url2 =
+            'http://192.168.0.30:9900/api/Beidou/gfs/meteorology?utcDate=20210705&utcHour=06&name=%E6%B5%B7%E6%B8%A9&interval=10&lonStart=100&lonEnd=170&latStart=52.5&latEnd=-30&isOutCoordinate=false';
+        // let url = 'http://192.168.0.30:9900/api/Beidou/gfs/meteorology';
+        let url =
+            'http://192.168.0.30:9900/api/Beidou/gfs/meteorology?utcDate=20210708&utcHour=12&name=%E6%B5%B7%E6%B8%A9&interval=10&lonStart=37.5&lonEnd=245&latStart=77.5&latEnd=-40&isOutCoordinate=false';
+
+        let param = {
+            utcDate: '20210705',
+            utcHour: '06',
+            name: '海温',
+            interval: '10',
+            lonStart: '100',
+            lonEnd: '170',
+            latStart: '52.5',
+            latEnd: '-30',
+            isOutCoordinate: false
+        };
+
+        axios.get(url, param)
+            .then(function (res) {
+                // console.log("ret: ", res.data);
+
+                //console.time('ScalarField from ASC');
+
+
+                // let data = res.data;
+                // let data = JSON.parse(res.data);
+                let data = eval('(' + res.data + ')')
+
+                // Header
+                var header = {}
+
+                // alias
+                header['nCols'] = data.header.nx;
+                header['nRows'] = data.header.ny;
+
+                // ll = lower-left
+                header['xllCorner'] = data.header.lo1;
+                header['yllCorner'] = data.header.la2;
+
+                header['cellXSize'] = data.header.dx;
+                header['cellYSize'] = data.header.dy;
+
+                // Data (left-right and top-down)
+                let zs = [];
+                let scaleFactor = 1;
+                data.data.forEach((it) => {
+                    let floatItem = parseFloat(it);
+                    let v = isNaN(floatItem) ? null : floatItem * scaleFactor;
+                    zs.push(v);
+                });
+
+                let p = header;
+                p.zs = zs;
+
+                //console.timeEnd('ScalarField from ASC');
+
+                console.log("header: ", header);
+
+                var s = new L.ScalarField(p);
+
+                var layer1 = L.canvasLayer.scalarFieldPro(s, {
+                    color: chroma.scale(['yellow', 'red']).domain(s.range),
+                    mouseMoveCursor: null,
+
+                }).addTo(map);
+                layer1.setOpacity(0.4);
+
+                map.fitBounds(layer1.getBounds());
+
+
+                /* Dynamic styles */
+                //      gradient with two colors
+                let gradientColors = document.getElementsByTagName('input[type=color]');
+                let low = document.getElementById('lowColor');
+                let high = document.getElementById('highColor');
+                var updateGradient = function () {
+                    var scale = chroma.scale([low.value, high.value]).domain(s.range);
+                    layer1.setColor(scale);
+                }
+                low.addEventListener('input', updateGradient);
+                high.addEventListener('input', updateGradient);
+
+
+
+            })
+            .catch(function (error) {
+                console.log(error);
+            });
+
+        ///////////////////////////////////////////////////////////////////
+        ///////////////////////////////////////////////////////////////////
+        /*
+            Some ScalarField layers with custom styles
+        */
+        d3.text('data/Bay_Speed.asc', function (asc) {
+            var s = L.ScalarField.fromASCIIGrid(asc);
+
+            // var layer1 = L.canvasLayer.scalarField(s, {
+            //     color: chroma.scale(['yellow', 'red']).domain(s.range),
+            //     mouseMoveCursor: null
+            // }).addTo(map);
+
+            // map.fitBounds(layer1.getBounds());
+
+            // var layer2 = L.canvasLayer.scalarField(s, {
+            //     color: chroma.scale('OrRd').domain(s.range),
+            //     mouseMoveCursor: null
+            // });
+
+            // var layer3 = L.canvasLayer.scalarField(s, {
+            //     color: chroma.scale('OrRd').classes(5),
+            //     mouseMoveCursor: null
+            // });
+
+            // var layers = {
+            //     'Two colors gradient': layer1,
+            //     'ColorBrewer2': layer2,
+            //     'Classes (n-equidistant)': layer3
+            // };
+
+            // L.control.layers(layers, {}, {
+            //     position: 'bottomleft',
+            //     collapsed: false
+            // }).addTo(map);
+
+
+            /* Dynamic styles */
+            //      gradient with two colors
+
+            // let gradientColors = document.getElementsByTagName('input[type=color]');
+            // let low = document.getElementById('lowColor');
+            // let high = document.getElementById('highColor');
+            // var updateGradient = function () {
+            //     var scale = chroma.scale([low.value, high.value]).domain(s.range);
+            //     layer1.setColor(scale);
+            // }
+            // low.addEventListener('input', updateGradient);
+            // high.addEventListener('input', updateGradient);
+        })
+
+
+
+
+
+        var vfA;
+        var vfB;
+        let layer;
+        d3.text('data/Atlantic_U.asc', function (u) {
+            d3.text('data/Atlantic_V.asc', function (v) {
+                vfA = L.VectorField.fromASCIIGrids(u, v);
+
+
+                layer = L.canvasLayer.vectorFieldAnim(vfA).addTo(map);
+                // map.fitBounds(layer.getBounds());
+
+                layer.on('click', function (e) {
+                    if (e.value !== null) {
+                        let vector = e.value;
+                        let v = vector.magnitude().toFixed(2);
+                        let d = vector.directionTo().toFixed(0);
+                        let html = (
+                            `<span class="popupText">${v} m/s to ${d}&deg</span>`
+                        );
+                        let popup = L.popup()
+                            .setLatLng(e.latlng)
+                            .setContent(html)
+                            .openOn(map);
+                    }
+                });
+            })
+        })
+
+
+        d3.text('data/Bay_U.asc', function (u) {
+            d3.text('data/Bay_V.asc', function (v) {
+                vfB = L.VectorField.fromASCIIGrids(u, v);
+            })
+        })
+
+
+
+
+        let map = L.map('map');
+
+        var Esri_WorldImagery = L.tileLayer(
+            'http://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+                attribution: 'Tiles &copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS, ' +
+                    'AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community'
+            }).addTo(map);
+
+
+
+
+        /* Basemap */
+        // let url = 'https://cartodb-basemaps-{s}.global.ssl.fastly.net/dark_nolabels/{z}/{x}/{y}.png';
+        // L.tileLayer(url, {
+        //     attribution: 'OSM & Carto',
+        //     subdomains: 'abcd',
+        //     maxZoom: 19
+        // }).addTo(map);
+
+        /* Default vectorfield animation, from two ASCIIGrid files with u|v current velocity */
+        // let layer;
+        // d3.text('data/Bay_U.asc', function (u) {
+        //     d3.text('data/Bay_V.asc', function (v) {
+
+        //         let vf = L.VectorField.fromASCIIGrids(u, v);
+
+        //         layer = L.canvasLayer.vectorFieldAnim(vf).addTo(map);
+        //         map.fitBounds(layer.getBounds());
+
+        //         layer.on('click', function (e) {
+        //             if (e.value !== null) {
+        //                 let vector = e.value;
+        //                 let v = vector.magnitude().toFixed(2);
+        //                 let d = vector.directionTo().toFixed(0);
+        //                 let html = (`<span class="popupText">${v} m/s to ${d}&deg</span>`);
+        //                 let popup = L.popup()
+        //                     .setLatLng(e.latlng)
+        //                     .setContent(html)
+        //                     .openOn(map);
+        //             }
+        //         });
+        //     });
+        // });
+
+        function onDataA() {
+            layer.setData(vfA);
+            map.fitBounds(layer.getBounds());
+        }
+
+        function onDataB() {
+            layer.setData(vfB);
+            map.fitBounds(layer.getBounds());
+        }
+
+        /* Basic style adjustments with controls */
+        let paths = document.getElementById('paths');
+        paths.addEventListener('input', function () {
+            // layer.options.paths = paths.value;
+            layer.resetParticlePaths(paths.value);
+        });
+
+        let width = document.getElementById('width');
+        width.addEventListener('input', function () {
+            layer.options.width = width.value;
+        });
+
+
+        let color = document.getElementById('color');
+        color.addEventListener('input', function () {
+            layer.options.color = color.value;
+        });
+
+        let velocityScale = document.getElementById('velocityScale');
+        velocityScale.addEventListener('input', function () {
+            layer.options.velocityScale = 1 / velocityScale.value;
+        });
+
+        let opacity = document.getElementById('opacity');
+        opacity.addEventListener('input', function () {
+            layer.setOpacity(opacity.value);
+        });
+    </script>
+</body>
+
+</html>

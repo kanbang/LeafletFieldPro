@@ -1,0 +1,26 @@
+{
+  "name": "LeafletField",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "webpack-dev-server --config config/webpack.config.js",
+    "build": "webpack --config config/webpack.config.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "@turf/inside": "^4.7.3",
+    "chroma-js": "^2.1.2",
+    "fs-extra": "^10.0.0",
+    "webpack": "^5.42.1",
+    "webpack-cli": "3.3.12",
+    "webpack-dev-server": "^3.11.2",
+    "webpack-shell-plugin-next": "^2.2.2"
+  },
+  "dependencies": {
+    "leaflet": "^1.7.1"
+  }
+}
