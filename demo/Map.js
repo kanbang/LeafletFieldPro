@@ -4,19 +4,620 @@
  * @Author: zhai
  * @Date: 2021-07-13 15:47:38
  * @LastEditors: zhai
- * @LastEditTime: 2021-07-14 14:29:35
+ * @LastEditTime: 2021-07-15 18:44:56
  */
 
 
-import Field from './Field';
-import ScalarField from './ScalarField';
-import chroma from './chroma';
+
+  /*
+   * @namespace Util
+   *
+   * Various utility functions, used by Leaflet internally.
+   */
+
+  // @function extend(dest: Object, src?: Object): Object
+  // Merges the properties of the `src` object (or multiple objects) into `dest` object and returns the latter. Has an `L.extend` shortcut.
+  function extend(dest) {
+    var i, j, len, src;
+
+    for (j = 1, len = arguments.length; j < len; j++) {
+        src = arguments[j];
+        for (i in src) {
+            dest[i] = src[i];
+        }
+    }
+    return dest;
+}
+
+// @function create(proto: Object, properties?: Object): Object
+// Compatibility polyfill for [Object.create](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/Object/create)
+var create = Object.create || (function () {
+    function F() {}
+    return function (proto) {
+        F.prototype = proto;
+        return new F();
+    };
+})();
+
+// @function bind(fn: Function, …): Function
+// Returns a new function bound to the arguments passed, like [Function.prototype.bind](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/Function/bind).
+// Has a `L.bind()` shortcut.
+function bind(fn, obj) {
+    var slice = Array.prototype.slice;
+
+    if (fn.bind) {
+        return fn.bind.apply(fn, slice.call(arguments, 1));
+    }
+
+    var args = slice.call(arguments, 2);
+
+    return function () {
+        return fn.apply(obj, args.length ? args.concat(slice.call(arguments)) : arguments);
+    };
+}
+
 
 // @function isArray(obj): Boolean
 // Compatibility polyfill for [Array.isArray](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/Array/isArray)
 var isArray = Array.isArray || function (obj) {
     return (Object.prototype.toString.call(obj) === '[object Array]');
 };
+
+
+
+// @class Class
+// @aka L.Class
+
+// @section
+// @uninheritable
+
+// Thanks to John Resig and Dean Edwards for inspiration!
+
+function Class() {}
+
+Class.extend = function (props) {
+
+    // @function extend(props: Object): Function
+    // [Extends the current class](#class-inheritance) given the properties to be included.
+    // Returns a Javascript function that is a class constructor (to be called with `new`).
+    var NewClass = function () {
+
+        // call the constructor
+        if (this.initialize) {
+            this.initialize.apply(this, arguments);
+        }
+
+        // call all constructor hooks
+        this.callInitHooks();
+    };
+
+    var parentProto = NewClass.__super__ = this.prototype;
+
+    var proto = create(parentProto);
+    proto.constructor = NewClass;
+
+    NewClass.prototype = proto;
+
+    // inherit parent's statics
+    for (var i in this) {
+        if (Object.prototype.hasOwnProperty.call(this, i) && i !== 'prototype' && i !== '__super__') {
+            NewClass[i] = this[i];
+        }
+    }
+
+    // mix static properties into the class
+    if (props.statics) {
+        extend(NewClass, props.statics);
+        delete props.statics;
+    }
+
+    // mix includes into the prototype
+    if (props.includes) {
+        checkDeprecatedMixinEvents(props.includes);
+        extend.apply(null, [proto].concat(props.includes));
+        delete props.includes;
+    }
+
+    // merge options
+    if (proto.options) {
+        props.options = extend(create(proto.options), props.options);
+    }
+
+    // mix given properties into the prototype
+    extend(proto, props);
+
+    proto._initHooks = [];
+
+    // add method for calling all hooks
+    proto.callInitHooks = function () {
+
+        if (this._initHooksCalled) {
+            return;
+        }
+
+        if (parentProto.callInitHooks) {
+            parentProto.callInitHooks.call(this);
+        }
+
+        this._initHooksCalled = true;
+
+        for (var i = 0, len = proto._initHooks.length; i < len; i++) {
+            proto._initHooks[i].call(this);
+        }
+    };
+
+    return NewClass;
+};
+
+
+// @function include(properties: Object): this
+// [Includes a mixin](#class-includes) into the current class.
+Class.include = function (props) {
+    extend(this.prototype, props);
+    return this;
+};
+
+// @function mergeOptions(options: Object): this
+// [Merges `options`](#class-options) into the defaults of the class.
+Class.mergeOptions = function (options) {
+    extend(this.prototype.options, options);
+    return this;
+};
+
+// @function addInitHook(fn: Function): this
+// Adds a [constructor hook](#class-constructor-hooks) to the class.
+Class.addInitHook = function (fn) { // (Function) || (String, args...)
+    var args = Array.prototype.slice.call(arguments, 1);
+
+    var init = typeof fn === 'function' ? fn : function () {
+        this[fn].apply(this, args);
+    };
+
+    this.prototype._initHooks = this.prototype._initHooks || [];
+    this.prototype._initHooks.push(init);
+    return this;
+};
+
+function checkDeprecatedMixinEvents(includes) {
+    if (typeof L === 'undefined' || !L || !L.Mixin) {
+        return;
+    }
+
+    includes = isArray(includes) ? includes : [includes];
+
+    for (var i = 0; i < includes.length; i++) {
+        if (includes[i] === L.Mixin.Events) {
+            console.warn('Deprecated include of L.Mixin.Events: ' +
+                'this property will be removed in future releases, ' +
+                'please inherit from L.Evented instead.', new Error().stack);
+        }
+    }
+}
+
+
+/*
+ * @class Point
+ * @aka L.Point
+ *
+ * Represents a point with `x` and `y` coordinates in pixels.
+ *
+ * @example
+ *
+ * ```js
+ * var point = L.point(200, 300);
+ * ```
+ *
+ * All Leaflet methods and options that accept `Point` objects also accept them in a simple Array form (unless noted otherwise), so these lines are equivalent:
+ *
+ * ```js
+ * map.panBy([200, 300]);
+ * map.panBy(L.point(200, 300));
+ * ```
+ *
+ * Note that `Point` does not inherit from Leaflet's `Class` object,
+ * which means new classes can't inherit from it, and new methods
+ * can't be added to it with the `include` function.
+ */
+
+function Point(x, y, round) {
+    // @property x: Number; The `x` coordinate of the point
+    this.x = (round ? Math.round(x) : x);
+    // @property y: Number; The `y` coordinate of the point
+    this.y = (round ? Math.round(y) : y);
+}
+
+var trunc = Math.trunc || function (v) {
+    return v > 0 ? Math.floor(v) : Math.ceil(v);
+};
+
+Point.prototype = {
+
+    // @method clone(): Point
+    // Returns a copy of the current point.
+    clone: function () {
+        return new Point(this.x, this.y);
+    },
+
+    // @method add(otherPoint: Point): Point
+    // Returns the result of addition of the current and the given points.
+    add: function (point) {
+        // non-destructive, returns a new point
+        return this.clone()._add(toPoint(point));
+    },
+
+    _add: function (point) {
+        // destructive, used directly for performance in situations where it's safe to modify existing point
+        this.x += point.x;
+        this.y += point.y;
+        return this;
+    },
+
+    // @method subtract(otherPoint: Point): Point
+    // Returns the result of subtraction of the given point from the current.
+    subtract: function (point) {
+        return this.clone()._subtract(toPoint(point));
+    },
+
+    _subtract: function (point) {
+        this.x -= point.x;
+        this.y -= point.y;
+        return this;
+    },
+
+    // @method divideBy(num: Number): Point
+    // Returns the result of division of the current point by the given number.
+    divideBy: function (num) {
+        return this.clone()._divideBy(num);
+    },
+
+    _divideBy: function (num) {
+        this.x /= num;
+        this.y /= num;
+        return this;
+    },
+
+    // @method multiplyBy(num: Number): Point
+    // Returns the result of multiplication of the current point by the given number.
+    multiplyBy: function (num) {
+        return this.clone()._multiplyBy(num);
+    },
+
+    _multiplyBy: function (num) {
+        this.x *= num;
+        this.y *= num;
+        return this;
+    },
+
+    // @method scaleBy(scale: Point): Point
+    // Multiply each coordinate of the current point by each coordinate of
+    // `scale`. In linear algebra terms, multiply the point by the
+    // [scaling matrix](https://en.wikipedia.org/wiki/Scaling_%28geometry%29#Matrix_representation)
+    // defined by `scale`.
+    scaleBy: function (point) {
+        return new Point(this.x * point.x, this.y * point.y);
+    },
+
+    // @method unscaleBy(scale: Point): Point
+    // Inverse of `scaleBy`. Divide each coordinate of the current point by
+    // each coordinate of `scale`.
+    unscaleBy: function (point) {
+        return new Point(this.x / point.x, this.y / point.y);
+    },
+
+    // @method round(): Point
+    // Returns a copy of the current point with rounded coordinates.
+    round: function () {
+        return this.clone()._round();
+    },
+
+    _round: function () {
+        this.x = Math.round(this.x);
+        this.y = Math.round(this.y);
+        return this;
+    },
+
+    // @method floor(): Point
+    // Returns a copy of the current point with floored coordinates (rounded down).
+    floor: function () {
+        return this.clone()._floor();
+    },
+
+    _floor: function () {
+        this.x = Math.floor(this.x);
+        this.y = Math.floor(this.y);
+        return this;
+    },
+
+    // @method ceil(): Point
+    // Returns a copy of the current point with ceiled coordinates (rounded up).
+    ceil: function () {
+        return this.clone()._ceil();
+    },
+
+    _ceil: function () {
+        this.x = Math.ceil(this.x);
+        this.y = Math.ceil(this.y);
+        return this;
+    },
+
+    // @method trunc(): Point
+    // Returns a copy of the current point with truncated coordinates (rounded towards zero).
+    trunc: function () {
+        return this.clone()._trunc();
+    },
+
+    _trunc: function () {
+        this.x = trunc(this.x);
+        this.y = trunc(this.y);
+        return this;
+    },
+
+    // @method distanceTo(otherPoint: Point): Number
+    // Returns the cartesian distance between the current and the given points.
+    distanceTo: function (point) {
+        point = toPoint(point);
+
+        var x = point.x - this.x,
+            y = point.y - this.y;
+
+        return Math.sqrt(x * x + y * y);
+    },
+
+    // @method equals(otherPoint: Point): Boolean
+    // Returns `true` if the given point has the same coordinates.
+    equals: function (point) {
+        point = toPoint(point);
+
+        return point.x === this.x &&
+            point.y === this.y;
+    },
+
+    // @method contains(otherPoint: Point): Boolean
+    // Returns `true` if both coordinates of the given point are less than the corresponding current point coordinates (in absolute values).
+    contains: function (point) {
+        point = toPoint(point);
+
+        return Math.abs(point.x) <= Math.abs(this.x) &&
+            Math.abs(point.y) <= Math.abs(this.y);
+    },
+
+    // @method toString(): String
+    // Returns a string representation of the point for debugging purposes.
+    toString: function () {
+        return 'Point(' +
+            formatNum(this.x) + ', ' +
+            formatNum(this.y) + ')';
+    }
+};
+
+
+// @factory L.point(x: Number, y: Number, round?: Boolean)
+// Creates a Point object with the given `x` and `y` coordinates. If optional `round` is set to true, rounds the `x` and `y` values.
+
+// @alternative
+// @factory L.point(coords: Number[])
+// Expects an array of the form `[x, y]` instead.
+
+// @alternative
+// @factory L.point(coords: Object)
+// Expects a plain object of the form `{x: Number, y: Number}` instead.
+function toPoint(x, y, round) {
+    if (x instanceof Point) {
+        return x;
+    }
+    if (isArray(x)) {
+        return new Point(x[0], x[1]);
+    }
+    if (x === undefined || x === null) {
+        return x;
+    }
+    if (typeof x === 'object' && 'x' in x && 'y' in x) {
+        return new Point(x.x, x.y);
+    }
+    return new Point(x, y, round);
+}
+
+function toLatLng(a, b, c) {
+    if (a instanceof LatLng) {
+        return a;
+    }
+    if (isArray(a) && typeof a[0] !== 'object') {
+        if (a.length === 3) {
+            return new LatLng(a[0], a[1], a[2]);
+        }
+        if (a.length === 2) {
+            return new LatLng(a[0], a[1]);
+        }
+        return null;
+    }
+    if (a === undefined || a === null) {
+        return a;
+    }
+    if (typeof a === 'object' && 'lat' in a) {
+        return new LatLng(a.lat, 'lng' in a ? a.lng : a.lon, a.alt);
+    }
+    if (b === undefined) {
+        return null;
+    }
+    return new LatLng(a, b, c);
+}
+
+
+/*
+ * @class Bounds
+ * @aka L.Bounds
+ *
+ * Represents a rectangular area in pixel coordinates.
+ *
+ * @example
+ *
+ * ```js
+ * var p1 = L.point(10, 10),
+ * p2 = L.point(40, 60),
+ * bounds = L.bounds(p1, p2);
+ * ```
+ *
+ * All Leaflet methods that accept `Bounds` objects also accept them in a simple Array form (unless noted otherwise), so the bounds example above can be passed like this:
+ *
+ * ```js
+ * otherBounds.intersects([[10, 10], [40, 60]]);
+ * ```
+ *
+ * Note that `Bounds` does not inherit from Leaflet's `Class` object,
+ * which means new classes can't inherit from it, and new methods
+ * can't be added to it with the `include` function.
+ */
+
+function Bounds(a, b) {
+    if (!a) {
+        return;
+    }
+
+    var points = b ? [a, b] : a;
+
+    for (var i = 0, len = points.length; i < len; i++) {
+        this.extend(points[i]);
+    }
+}
+
+Bounds.prototype = {
+    // @method extend(point: Point): this
+    // Extends the bounds to contain the given point.
+    extend: function (point) { // (Point)
+        point = toPoint(point);
+
+        // @property min: Point
+        // The top left corner of the rectangle.
+        // @property max: Point
+        // The bottom right corner of the rectangle.
+        if (!this.min && !this.max) {
+            this.min = point.clone();
+            this.max = point.clone();
+        } else {
+            this.min.x = Math.min(point.x, this.min.x);
+            this.max.x = Math.max(point.x, this.max.x);
+            this.min.y = Math.min(point.y, this.min.y);
+            this.max.y = Math.max(point.y, this.max.y);
+        }
+        return this;
+    },
+
+    // @method getCenter(round?: Boolean): Point
+    // Returns the center point of the bounds.
+    getCenter: function (round) {
+        return new Point(
+            (this.min.x + this.max.x) / 2,
+            (this.min.y + this.max.y) / 2, round);
+    },
+
+    // @method getBottomLeft(): Point
+    // Returns the bottom-left point of the bounds.
+    getBottomLeft: function () {
+        return new Point(this.min.x, this.max.y);
+    },
+
+    // @method getTopRight(): Point
+    // Returns the top-right point of the bounds.
+    getTopRight: function () { // -> Point
+        return new Point(this.max.x, this.min.y);
+    },
+
+    // @method getTopLeft(): Point
+    // Returns the top-left point of the bounds (i.e. [`this.min`](#bounds-min)).
+    getTopLeft: function () {
+        return this.min; // left, top
+    },
+
+    // @method getBottomRight(): Point
+    // Returns the bottom-right point of the bounds (i.e. [`this.max`](#bounds-max)).
+    getBottomRight: function () {
+        return this.max; // right, bottom
+    },
+
+    // @method getSize(): Point
+    // Returns the size of the given bounds
+    getSize: function () {
+        return this.max.subtract(this.min);
+    },
+
+    // @method contains(otherBounds: Bounds): Boolean
+    // Returns `true` if the rectangle contains the given one.
+    // @alternative
+    // @method contains(point: Point): Boolean
+    // Returns `true` if the rectangle contains the given point.
+    contains: function (obj) {
+        var min, max;
+
+        if (typeof obj[0] === 'number' || obj instanceof Point) {
+            obj = toPoint(obj);
+        } else {
+            obj = toBounds(obj);
+        }
+
+        if (obj instanceof Bounds) {
+            min = obj.min;
+            max = obj.max;
+        } else {
+            min = max = obj;
+        }
+
+        return (min.x >= this.min.x) &&
+            (max.x <= this.max.x) &&
+            (min.y >= this.min.y) &&
+            (max.y <= this.max.y);
+    },
+
+    // @method intersects(otherBounds: Bounds): Boolean
+    // Returns `true` if the rectangle intersects the given bounds. Two bounds
+    // intersect if they have at least one point in common.
+    intersects: function (bounds) { // (Bounds) -> Boolean
+        bounds = toBounds(bounds);
+
+        var min = this.min,
+            max = this.max,
+            min2 = bounds.min,
+            max2 = bounds.max,
+            xIntersects = (max2.x >= min.x) && (min2.x <= max.x),
+            yIntersects = (max2.y >= min.y) && (min2.y <= max.y);
+
+        return xIntersects && yIntersects;
+    },
+
+    // @method overlaps(otherBounds: Bounds): Boolean
+    // Returns `true` if the rectangle overlaps the given bounds. Two bounds
+    // overlap if their intersection is an area.
+    overlaps: function (bounds) { // (Bounds) -> Boolean
+        bounds = toBounds(bounds);
+
+        var min = this.min,
+            max = this.max,
+            min2 = bounds.min,
+            max2 = bounds.max,
+            xOverlaps = (max2.x > min.x) && (min2.x < max.x),
+            yOverlaps = (max2.y > min.y) && (min2.y < max.y);
+
+        return xOverlaps && yOverlaps;
+    },
+
+    isValid: function () {
+        return !!(this.min && this.max);
+    }
+};
+
+
+// @factory L.bounds(corner1: Point, corner2: Point)
+// Creates a Bounds object from two corners coordinate pairs.
+// @alternative
+// @factory L.bounds(points: Point[])
+// Creates a Bounds object from the given array of points.
+function toBounds(a, b) {
+    if (!a || a instanceof Bounds) {
+        return a;
+    }
+    return new Bounds(a, b);
+}
+
+
 
 // @function getPosition(el: HTMLElement): Point
 // Returns the coordinates of an element previously positioned with setPosition.
@@ -26,6 +627,82 @@ function getPosition(el) {
 
     return el._leaflet_pos || new Point(0, 0);
 }
+
+
+/*
+ * @namespace Projection
+ * @section
+ * Leaflet comes with a set of already defined Projections out of the box:
+ *
+ * @projection L.Projection.LonLat
+ *
+ * Equirectangular, or Plate Carree projection — the most simple projection,
+ * mostly used by GIS enthusiasts. Directly maps `x` as longitude, and `y` as
+ * latitude. Also suitable for flat worlds, e.g. game maps. Used by the
+ * `EPSG:4326` and `Simple` CRS.
+ */
+
+var LonLat = {
+    project: function (latlng) {
+        return new Point(latlng.lng, latlng.lat);
+    },
+
+    unproject: function (point) {
+        return new LatLng(point.y, point.x);
+    },
+
+    bounds: new Bounds([-180, -90], [180, 90])
+};
+
+
+
+/*
+ * @namespace Projection
+ * @projection L.Projection.Mercator
+ *
+ * Elliptical Mercator projection — more complex than Spherical Mercator. Assumes that Earth is an ellipsoid. Used by the EPSG:3395 CRS.
+ */
+
+var Mercator = {
+    R: 6378137,
+    R_MINOR: 6356752.314245179,
+
+    bounds: new Bounds([-20037508.34279, -15496570.73972], [20037508.34279, 18764656.23138]),
+
+    project: function (latlng) {
+        var d = Math.PI / 180,
+            r = this.R,
+            y = latlng.lat * d,
+            tmp = this.R_MINOR / r,
+            e = Math.sqrt(1 - tmp * tmp),
+            con = e * Math.sin(y);
+
+        var ts = Math.tan(Math.PI / 4 - y / 2) / Math.pow((1 - con) / (1 + con), e / 2);
+        y = -r * Math.log(Math.max(ts, 1E-10));
+
+        return new Point(latlng.lng * d * r, y);
+    },
+
+    unproject: function (point) {
+        var d = 180 / Math.PI,
+            r = this.R,
+            tmp = this.R_MINOR / r,
+            e = Math.sqrt(1 - tmp * tmp),
+            ts = Math.exp(-point.y / r),
+            phi = Math.PI / 2 - 2 * Math.atan(ts);
+
+        for (var i = 0, dphi = 0.1, con; i < 15 && Math.abs(dphi) > 1e-7; i++) {
+            con = e * Math.sin(phi);
+            con = Math.pow((1 - con) / (1 + con), e / 2);
+            dphi = Math.PI / 2 - 2 * Math.atan(ts * con) - phi;
+            phi += dphi;
+        }
+
+        return new LatLng(phi * d, point.x * d / r);
+    }
+};
+
+
 
 /*
  * @namespace CRS
@@ -515,254 +1192,6 @@ LatLng.prototype = {
         return new LatLng(this.lat, this.lng, this.alt);
     }
 };
-
-
-/*
- * @class Point
- * @aka L.Point
- *
- * Represents a point with `x` and `y` coordinates in pixels.
- *
- * @example
- *
- * ```js
- * var point = L.point(200, 300);
- * ```
- *
- * All Leaflet methods and options that accept `Point` objects also accept them in a simple Array form (unless noted otherwise), so these lines are equivalent:
- *
- * ```js
- * map.panBy([200, 300]);
- * map.panBy(L.point(200, 300));
- * ```
- *
- * Note that `Point` does not inherit from Leaflet's `Class` object,
- * which means new classes can't inherit from it, and new methods
- * can't be added to it with the `include` function.
- */
-
-function Point(x, y, round) {
-    // @property x: Number; The `x` coordinate of the point
-    this.x = (round ? Math.round(x) : x);
-    // @property y: Number; The `y` coordinate of the point
-    this.y = (round ? Math.round(y) : y);
-}
-
-var trunc = Math.trunc || function (v) {
-    return v > 0 ? Math.floor(v) : Math.ceil(v);
-};
-
-Point.prototype = {
-
-    // @method clone(): Point
-    // Returns a copy of the current point.
-    clone: function () {
-        return new Point(this.x, this.y);
-    },
-
-    // @method add(otherPoint: Point): Point
-    // Returns the result of addition of the current and the given points.
-    add: function (point) {
-        // non-destructive, returns a new point
-        return this.clone()._add(toPoint(point));
-    },
-
-    _add: function (point) {
-        // destructive, used directly for performance in situations where it's safe to modify existing point
-        this.x += point.x;
-        this.y += point.y;
-        return this;
-    },
-
-    // @method subtract(otherPoint: Point): Point
-    // Returns the result of subtraction of the given point from the current.
-    subtract: function (point) {
-        return this.clone()._subtract(toPoint(point));
-    },
-
-    _subtract: function (point) {
-        this.x -= point.x;
-        this.y -= point.y;
-        return this;
-    },
-
-    // @method divideBy(num: Number): Point
-    // Returns the result of division of the current point by the given number.
-    divideBy: function (num) {
-        return this.clone()._divideBy(num);
-    },
-
-    _divideBy: function (num) {
-        this.x /= num;
-        this.y /= num;
-        return this;
-    },
-
-    // @method multiplyBy(num: Number): Point
-    // Returns the result of multiplication of the current point by the given number.
-    multiplyBy: function (num) {
-        return this.clone()._multiplyBy(num);
-    },
-
-    _multiplyBy: function (num) {
-        this.x *= num;
-        this.y *= num;
-        return this;
-    },
-
-    // @method scaleBy(scale: Point): Point
-    // Multiply each coordinate of the current point by each coordinate of
-    // `scale`. In linear algebra terms, multiply the point by the
-    // [scaling matrix](https://en.wikipedia.org/wiki/Scaling_%28geometry%29#Matrix_representation)
-    // defined by `scale`.
-    scaleBy: function (point) {
-        return new Point(this.x * point.x, this.y * point.y);
-    },
-
-    // @method unscaleBy(scale: Point): Point
-    // Inverse of `scaleBy`. Divide each coordinate of the current point by
-    // each coordinate of `scale`.
-    unscaleBy: function (point) {
-        return new Point(this.x / point.x, this.y / point.y);
-    },
-
-    // @method round(): Point
-    // Returns a copy of the current point with rounded coordinates.
-    round: function () {
-        return this.clone()._round();
-    },
-
-    _round: function () {
-        this.x = Math.round(this.x);
-        this.y = Math.round(this.y);
-        return this;
-    },
-
-    // @method floor(): Point
-    // Returns a copy of the current point with floored coordinates (rounded down).
-    floor: function () {
-        return this.clone()._floor();
-    },
-
-    _floor: function () {
-        this.x = Math.floor(this.x);
-        this.y = Math.floor(this.y);
-        return this;
-    },
-
-    // @method ceil(): Point
-    // Returns a copy of the current point with ceiled coordinates (rounded up).
-    ceil: function () {
-        return this.clone()._ceil();
-    },
-
-    _ceil: function () {
-        this.x = Math.ceil(this.x);
-        this.y = Math.ceil(this.y);
-        return this;
-    },
-
-    // @method trunc(): Point
-    // Returns a copy of the current point with truncated coordinates (rounded towards zero).
-    trunc: function () {
-        return this.clone()._trunc();
-    },
-
-    _trunc: function () {
-        this.x = trunc(this.x);
-        this.y = trunc(this.y);
-        return this;
-    },
-
-    // @method distanceTo(otherPoint: Point): Number
-    // Returns the cartesian distance between the current and the given points.
-    distanceTo: function (point) {
-        point = toPoint(point);
-
-        var x = point.x - this.x,
-            y = point.y - this.y;
-
-        return Math.sqrt(x * x + y * y);
-    },
-
-    // @method equals(otherPoint: Point): Boolean
-    // Returns `true` if the given point has the same coordinates.
-    equals: function (point) {
-        point = toPoint(point);
-
-        return point.x === this.x &&
-            point.y === this.y;
-    },
-
-    // @method contains(otherPoint: Point): Boolean
-    // Returns `true` if both coordinates of the given point are less than the corresponding current point coordinates (in absolute values).
-    contains: function (point) {
-        point = toPoint(point);
-
-        return Math.abs(point.x) <= Math.abs(this.x) &&
-            Math.abs(point.y) <= Math.abs(this.y);
-    },
-
-    // @method toString(): String
-    // Returns a string representation of the point for debugging purposes.
-    toString: function () {
-        return 'Point(' +
-            formatNum(this.x) + ', ' +
-            formatNum(this.y) + ')';
-    }
-};
-
-
-// @factory L.point(x: Number, y: Number, round?: Boolean)
-// Creates a Point object with the given `x` and `y` coordinates. If optional `round` is set to true, rounds the `x` and `y` values.
-
-// @alternative
-// @factory L.point(coords: Number[])
-// Expects an array of the form `[x, y]` instead.
-
-// @alternative
-// @factory L.point(coords: Object)
-// Expects a plain object of the form `{x: Number, y: Number}` instead.
-function toPoint(x, y, round) {
-    if (x instanceof Point) {
-        return x;
-    }
-    if (isArray(x)) {
-        return new Point(x[0], x[1]);
-    }
-    if (x === undefined || x === null) {
-        return x;
-    }
-    if (typeof x === 'object' && 'x' in x && 'y' in x) {
-        return new Point(x.x, x.y);
-    }
-    return new Point(x, y, round);
-}
-
-function toLatLng(a, b, c) {
-    if (a instanceof LatLng) {
-        return a;
-    }
-    if (isArray(a) && typeof a[0] !== 'object') {
-        if (a.length === 3) {
-            return new LatLng(a[0], a[1], a[2]);
-        }
-        if (a.length === 2) {
-            return new LatLng(a[0], a[1]);
-        }
-        return null;
-    }
-    if (a === undefined || a === null) {
-        return a;
-    }
-    if (typeof a === 'object' && 'lat' in a) {
-        return new LatLng(a.lat, 'lng' in a ? a.lng : a.lon, a.alt);
-    }
-    if (b === undefined) {
-        return null;
-    }
-    return new LatLng(a, b, c);
-}
 
 
 
@@ -1285,101 +1714,4 @@ var Map = Evented.extend({
     },
 });
 
-
-
-onmessage = function (e) {
-
-    debugger
-    
-    if (e.data.type === 'canvas') {
-        const canvas = e.data.canvas;
-    }
-
-    console.log('Worker: Message received from main script');
-    const result = e.data[0] * e.data[1];
-
-    if (isNaN(result)) {
-        postMessage('Please write two numbers');
-    } else {
-        const workerResult = 'Result: ' + result;
-        console.log('Worker: Posting message back to main script');
-        postMessage(workerResult);
-    }
-}
-
-
-
-
-
-
-let _map = new Map();
-let _field = new ScalarField();
-
-/**
- * Gets a chroma color for a pixel value, according to 'options.color'
- */
-function _getColorFor(v) {
-    let rgba = this.options.color(v).rgba();
-    return rgba;
-}
-
-var scale = chroma.scale([low.value, high.value]).domain(_field.range);
-layer1.setColor(scale);
-
-
-let ctx = this._getDrawingContext();
-
-
-
-let width = this._canvas.width;
-let height = this._canvas.height;
-
-let img = ctx.createImageData(width, height);
-let data = img.data;
-
-
-// let foo = greenlet(a => 'foo: ' + a);
-// let ret = await foo('test');
-
-// let maskworker = greenlet((that, data, width, height) => {
-//     return that._prepareImageIn(data, width, height);
-// });
-
-// img.data = await maskworker(this, data, width, height);
-
-
-this._prepareImageIn(data, width, height);
-ctx.putImageData(img, 0, 0);
-
-/**
- * Prepares the image in data, as array with RGBAs
- * [R1, G1, B1, A1, R2, G2, B2, A2...]
- * @private
- * @param {[[Type]]} data   [[Description]]
- * @param {Numver} width
- * @param {Number} height
- */
- function _prepareImageIn(data, width, height) {
-    let f = this.options.interpolate ? 'interpolatedValueAt' : 'valueAt';
-
-    let pos = 0;
-    for (let j = 0; j < height; j++) {
-        for (let i = 0; i < width; i++) {
-            let pointCoords = this._map.containerPointToLatLng([i, j]);
-            let lon = pointCoords.lng;
-            let lat = pointCoords.lat;
-
-            let v = this._field[f](lon, lat); // 'valueAt' | 'interpolatedValueAt' || TODO check some 'artifacts'
-            if (v !== null) {
-                let [R, G, B, A] = this._getColorFor(v);
-                data[pos] = R;
-                data[pos + 1] = G;
-                data[pos + 2] = B;
-                data[pos + 3] = parseInt(A * 255); // not percent in alpha but hex 0-255
-            }
-            pos = pos + 4;
-        }
-    }
-
-    return data;
-}
+export default Map;
